@@ -10,6 +10,8 @@ from functions.functions import (
     coerce_named_date_columns,
     export_xlsx_bytes,
     extract_dates_from_filename,
+    find_bad_rows,          # <-- add this
+    robust_read_csv,
 )
 
 # ---------- Config ----------
@@ -41,6 +43,30 @@ files = st.file_uploader(
 )
 files = files[:100] if files else []
 
+st.subheader("🔎 Diagnose uploaded CSVs")
+if st.button("Run diagnostics", use_container_width=True, disabled=not files):
+    for f in files:
+        name = getattr(f, "name", "unknown")
+        st.write(f"**{name}**")
+        try:
+            # Try tolerant read
+            df, skipped = robust_read_csv(f)
+            st.success(f"Parsed OK — {len(df):,} rows, {len(df.columns)} cols")
+            if skipped:
+                st.warning(f"⚠️ {f.name}: {skipped} malformed row(s) detected (skipped).")
+        except Exception as e:
+            st.error(f"Failed to parse: {name}")
+            st.code(str(e))
+            # Pinpoint structural issues (column count mismatches)
+            diag = find_bad_rows(f)
+            st.write({"delimiter": diag["delimiter"], "expected_cols": diag["expected_cols"]})
+            if diag["bad_rows"]:
+                st.warning(f"First {len(diag['bad_rows'])} mismatched rows:")
+                for line_no, found_cols, snippet in diag["bad_rows"][:10]:
+                    st.code(f"line {line_no} | cols={found_cols} | {snippet}")
+            else:
+                st.info("No column-count mismatches; likely quoting/encoding issue.")
+
 # --- SCO mapping (defined once) ---
 SCO_MAP_RAW = {
     "CRUZ; ASHLIE": "Ashlie",
@@ -70,9 +96,21 @@ st.subheader("2 | Build unified table and export")
 if st.button("Build & Export XLSX", use_container_width=True, disabled=not files):
     frames: List[pd.DataFrame] = []
 
-    for f in files:
-        df = pd.read_csv(f)
+    total_skipped = 0   # ✅ initialize before the loop
 
+    for f in files:
+        df, skipped = robust_read_csv(f)
+
+        # if skipped > 0:
+        #     st.warning(f"⚠️ {f.name}: {skipped} malformed row(s) were skipped during parsing.")
+
+        total_skipped += skipped   # ✅ accumulate skipped rows
+
+    # ✅ summary after the loop (only once)
+    if total_skipped > 0:
+        st.warning(f"⚠️ A total of **{total_skipped}** malformed row(s) were skipped across all files.")
+    else:
+        st.success("✅ No malformed rows detected in uploaded files.")
         # 1) Extract dates from the filename (MM.DD.YY_MM.DD.YY or MM-DD-YYYY_MM-DD-YYYY)
         f_from, f_to = extract_dates_from_filename(f.name)
 

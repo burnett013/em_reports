@@ -6,6 +6,7 @@ from datetime import date
 from pathlib import Path
 import re
 import pandas as pd
+import csv
 
 # Use your actual column names
 DEFAULT_DATE_COLS: List[str] = [
@@ -164,3 +165,93 @@ def coerce_named_date_columns(
         else:
             out[col] = pd.to_datetime(out[col], errors="coerce", dayfirst=dayfirst)
     return out
+
+# Error handling ----------------------------
+def sniff_delimiter(text_sample: str) -> str:
+    try:
+        return csv.Sniffer().sniff(text_sample, delimiters=[",",";","\t","|"]).delimiter
+    except Exception:
+        return ","  # fallback
+
+def find_bad_rows(uploaded_file, max_report=20):
+    """
+    Return dict with delimiter guess, expected column count from header,
+    and the first few rows that don't match that count.
+    """
+    raw = uploaded_file.read()           # bytes
+    uploaded_file.seek(0)
+    txt = raw.decode("utf-8", errors="replace")
+    delim = sniff_delimiter(txt[:32768])
+
+    lines = txt.splitlines()
+    rdr = csv.reader(lines, delimiter=delim)
+    bad, expected = [], None
+    for i, row in enumerate(rdr, start=1):
+        if i == 1:
+            expected = len(row)
+            continue
+        if expected is not None and len(row) != expected:
+            bad.append((i, len(row), lines[i-1][:200]))
+            if len(bad) >= max_report:
+                break
+    return {"delimiter": delim, "expected_cols": expected, "bad_rows": bad}
+
+def robust_read_csv(uploaded_file) -> tuple[pd.DataFrame, int]:
+    """
+    Defensive CSV loader:
+      - detect delimiter,
+      - try utf-8-sig then cp1252 (fallback replace),
+      - count malformed rows (based on first N columns),
+      - parse using only the first 40 columns (by position),
+      - skip bad lines using engine='python'.
+    Returns: (df, skipped_row_count)
+    """
+    raw = uploaded_file.read()
+    uploaded_file.seek(0)
+
+    # Decode text
+    text = None
+    for enc in ("utf-8-sig", "cp1252"):
+        try:
+            text = raw.decode(enc)
+            break
+        except UnicodeDecodeError:
+            continue
+    if text is None:
+        text = raw.decode("utf-8", errors="replace")
+
+    # Sniff delimiter
+    sample = text[:32768]
+    try:
+        sep = csv.Sniffer().sniff(sample, delimiters=[",", ";", "\t", "|"]).delimiter
+    except Exception:
+        sep = ","
+
+    # First pass: determine header col count and count malformed rows
+    lines = text.splitlines()
+    reader = csv.reader(lines, delimiter=sep)
+
+    try:
+        header = next(reader)
+    except StopIteration:
+        return pd.DataFrame(), 0  # empty file
+
+    total_cols = len(header)
+    keep_cols = min(40, total_cols)   # <-- restrict to first 40 columns
+
+    # Count rows that don't have at least 'keep_cols' fields
+    skipped = 0
+    for row in reader:
+        if len(row) < keep_cols:
+            skipped += 1
+
+    # Second pass: parse with pandas, using only first 'keep_cols' columns
+    # NOTE: no low_memory with python engine
+    df = pd.read_csv(
+        io.StringIO(text),
+        sep=sep,
+        engine="python",
+        on_bad_lines="skip",
+        usecols=range(keep_cols),   # <-- only first 40 (or fewer) columns by position
+    )
+    return df, skipped
