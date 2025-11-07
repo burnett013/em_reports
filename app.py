@@ -5,7 +5,7 @@ from typing import List
 import pandas as pd
 import streamlit as st
 
-# ---------- Utilities (moved to functions.py) ----------
+# ---------- Utilities ----------
 from functions.functions import (
     coerce_named_date_columns,
     export_xlsx_bytes,
