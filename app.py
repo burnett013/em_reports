@@ -13,7 +13,8 @@ from functions.functions import (
 )
 
 # ---------- Config ----------
-BASE = Path("/Users/andyburnett/Library/Mobile Documents/com~apple~CloudDocs/Desktop/X03.27.25/OVS/Special Projects/em_report_project/v5")
+# BASE = Path("/Users/andyburnett/Library/Mobile Documents/com~apple~CloudDocs/Desktop/X03.27.25/OVS/Special Projects/em_report_project/v5")
+BASE = Path("exports")
 
 # ---------- App ----------
 st.set_page_config(page_title="EM Reports", layout="wide")
