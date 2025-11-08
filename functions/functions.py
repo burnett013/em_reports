@@ -173,29 +173,6 @@ def sniff_delimiter(text_sample: str) -> str:
     except Exception:
         return ","  # fallback
 
-def find_bad_rows(uploaded_file, max_report=20):
-    """
-    Return dict with delimiter guess, expected column count from header,
-    and the first few rows that don't match that count.
-    """
-    raw = uploaded_file.read()           # bytes
-    uploaded_file.seek(0)
-    txt = raw.decode("utf-8", errors="replace")
-    delim = sniff_delimiter(txt[:32768])
-
-    lines = txt.splitlines()
-    rdr = csv.reader(lines, delimiter=delim)
-    bad, expected = [], None
-    for i, row in enumerate(rdr, start=1):
-        if i == 1:
-            expected = len(row)
-            continue
-        if expected is not None and len(row) != expected:
-            bad.append((i, len(row), lines[i-1][:200]))
-            if len(bad) >= max_report:
-                break
-    return {"delimiter": delim, "expected_cols": expected, "bad_rows": bad}
-
 def robust_read_csv(uploaded_file) -> tuple[pd.DataFrame, int]:
     """
     Defensive CSV loader:
@@ -255,3 +232,15 @@ def robust_read_csv(uploaded_file) -> tuple[pd.DataFrame, int]:
         usecols=range(keep_cols),   # <-- only first 40 (or fewer) columns by position
     )
     return df, skipped
+
+def detected_overall_period(files):
+    from_vals, to_vals = [], []
+    for f in files or []:
+        f_from, f_to = extract_dates_from_filename(f.name)
+        if f_from: from_vals.append(pd.to_datetime(f_from).date())
+        if f_to:   to_vals.append(pd.to_datetime(f_to).date())
+    if not from_vals and not to_vals:
+        return None
+    overall_from = min(from_vals) if from_vals else None
+    overall_to   = max(to_vals)   if to_vals   else None
+    return overall_from, overall_to
