@@ -10,7 +10,6 @@ from functions.functions import (
     coerce_named_date_columns,
     export_xlsx_bytes,
     extract_dates_from_filename,
-    find_bad_rows,          # <-- add this
     robust_read_csv,
 )
 
@@ -22,7 +21,7 @@ BASE = Path("exports")
 st.set_page_config(page_title="EM Reports", layout="wide")
 st.title("EM Report Compiler")
 st.divider()
-st.subheader("Detailed Reports")
+st.subheader("Detailed Reports - v1.0")
 
 st.sidebar.header("Report Period")
 period = st.sidebar.date_input(
@@ -95,80 +94,74 @@ SCO_MAP = {_norm_key(k): v for k, v in SCO_MAP_RAW.items()}
 st.subheader("2 | Build unified table and export")
 if st.button("Build & Export XLSX", use_container_width=True, disabled=not files):
     frames: List[pd.DataFrame] = []
-
-    total_skipped = 0   # ✅ initialize before the loop
+    total_skipped = 0
+    per_file_stats = []
 
     for f in files:
+        # some environments need a rewind before each read
+        try:
+            f.seek(0)
+        except Exception:
+            pass
+
         df, skipped = robust_read_csv(f)
+        total_skipped += skipped
 
-        # if skipped > 0:
-        #     st.warning(f"⚠️ {f.name}: {skipped} malformed row(s) were skipped during parsing.")
-
-        total_skipped += skipped   # ✅ accumulate skipped rows
-
-    # ✅ summary after the loop (only once)
-    if total_skipped > 0:
-        st.warning(f"⚠️ A total of **{total_skipped}** malformed row(s) were skipped across all files.")
-    else:
-        st.success("✅ No malformed rows detected in uploaded files.")
-        # 1) Extract dates from the filename (MM.DD.YY_MM.DD.YY or MM-DD-YYYY_MM-DD-YYYY)
+        # Dates from filename with sidebar fallback
         f_from, f_to = extract_dates_from_filename(f.name)
-
-        # 2) Fall back to sidebar period if filename dates are missing
         from_dt = pd.to_datetime(f_from or date_from)
         to_dt   = pd.to_datetime(f_to   or date_to)
 
-        # Insert non-EM columns ----
-        # Year
-        year_val = from_dt.year        # e.g., 2025 (int)
-        month_val = from_dt
-
-        # Insert new columns in correct order
-        # 1) Year (first column)
-        df.insert(0, "Year", year_val)
-        # 2) Month (second column)
+        # New columns
+        year_val  = from_dt.year           # int year
+        month_val = from_dt                # true date; Excel formatter will show mmm
+        df.insert(0, "Year",  year_val)
         df.insert(1, "Month", month_val)
-        # 3) From (third column)
-        df.insert(2, "From", from_dt)
-        # 4) To (fourth column)
-        df.insert(3, "To", to_dt)
-        
-        # 5) SCO2
-        # Clean SCO column and map to friendly names
+        df.insert(2, "From",  from_dt)
+        df.insert(3, "To",    to_dt)
+
+        # SCO mapping
         if "SCO" in df.columns:
             cleaned_sco = df["SCO"].map(_norm_key)
             df.insert(4, "SCO2", cleaned_sco.map(SCO_MAP).fillna(""))
 
-        # 4) Coerce ONLY the required named date columns (no guessing)
+        # Coerce ONLY the named date columns
         df = coerce_named_date_columns(df)
 
-        # 5) Keep track of source file (optional)
+        # Track source
         df["_source_file"] = f.name
 
         frames.append(df)
+        per_file_stats.append(
+            {"file": f.name, "rows": int(df.shape[0]), "cols": int(df.shape[1]), "skipped": int(skipped)}
+        )
 
+    # Summaries
+    if total_skipped:
+        st.warning(f"⚠️ A total of **{total_skipped}** malformed row(s) were skipped across all files.")
+    else:
+        st.success("✅ No malformed rows detected in uploaded files.")
+
+    # Optional: quick per-file table to verify all files contributed rows
+    st.caption("Per-file parse summary")
+    st.dataframe(pd.DataFrame(per_file_stats))
+
+    # Build unified and show/download
     unified = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
-
     st.success(f"Unified {len(files)} file(s), {len(unified):,} rows.")
     if not unified.empty:
         st.dataframe(unified.head(50))
-        # --- Show unmapped SCO values (missing SCO2) ---
+
         if "SCO2" in unified.columns:
             missing_sco = unified[unified["SCO2"].isna() | (unified["SCO2"].astype(str).str.strip() == "")]
             if not missing_sco.empty:
                 st.warning(f"{len(missing_sco)} rows have no SCO match. Review below:")
-                st.dataframe(
-                    missing_sco[["SCO", "Facility Code", "Begin Date", "End Date"]].head(50),
-                    use_container_width=True
-                )
-                # Show exact raw SCO strings that didn't match (helps maintain the map)
+                st.dataframe(missing_sco[["SCO", "Facility Code", "Begin Date", "End Date"]].head(50))
                 raw_vals = sorted(set(missing_sco["SCO"].astype(str)))
                 st.caption("Unmapped SCO raw values (exact):")
                 st.code("\n".join(repr(v) for v in raw_vals), language="text")
             else:
                 st.success("All SCO values successfully mapped ✅")
-
-    # Note: Export handles date formatting; no coercion here
 
     # Export
     default_name = f"unified_{pd.Timestamp.now():%Y%m%d_%H%M}.xlsx"
