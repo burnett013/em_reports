@@ -232,3 +232,15 @@ def robust_read_csv(uploaded_file) -> tuple[pd.DataFrame, int]:
         usecols=range(keep_cols),   # <-- only first 40 (or fewer) columns by position
     )
     return df, skipped
+
+def detected_overall_period(files):
+    from_vals, to_vals = [], []
+    for f in files or []:
+        f_from, f_to = extract_dates_from_filename(f.name)
+        if f_from: from_vals.append(pd.to_datetime(f_from).date())
+        if f_to:   to_vals.append(pd.to_datetime(f_to).date())
+    if not from_vals and not to_vals:
+        return None
+    overall_from = min(from_vals) if from_vals else None
+    overall_to   = max(to_vals)   if to_vals   else None
+    return overall_from, overall_to

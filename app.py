@@ -11,29 +11,20 @@ from functions.functions import (
     export_xlsx_bytes,
     extract_dates_from_filename,
     robust_read_csv,
+    detected_overall_period,
 )
 
 # ---------- Config ----------
-# BASE = Path("/Users/andyburnett/Library/Mobile Documents/com~apple~CloudDocs/Desktop/X03.27.25/OVS/Special Projects/em_report_project/v5")
 BASE = Path("exports")
 
 # ---------- App ----------
 st.set_page_config(page_title="EM Reports", layout="wide")
 st.title("EM Report Compiler")
 st.divider()
-st.subheader("Detailed Reports - v1.0")
+st.subheader("Detailed Reports")
 
-st.sidebar.header("Report Period")
-period = st.sidebar.date_input(
-    "From and To (inclusive)",
-    value=(pd.Timestamp.today().date(), pd.Timestamp.today().date()),
-)
-if isinstance(period, tuple):
-    date_from, date_to = period
-else:
-    date_from = date_to = period
+st.sidebar.header("Version: v1.1 (11/8/2025)")
 
-st.subheader("1 | Upload up to 100 CSV reports")
 files = st.file_uploader(
     "CSV files",
     type=["csv"],
@@ -41,6 +32,15 @@ files = st.file_uploader(
     help="Drop up to 100 CSVs or less."
 )
 files = files[:100] if files else []
+
+# From and To dates detected from filenames
+st.sidebar.header("Date Range:")
+auto_period = detected_overall_period(files)
+if auto_period:
+    auto_from, auto_to = auto_period
+    st.sidebar.subheader(
+        f"{auto_from:%m/%d/%Y} – {auto_to:%m/%d/%Y}"
+    )
 
 st.subheader("🔎 Diagnose uploaded CSVs")
 if st.button("Run diagnostics", use_container_width=True, disabled=not files):
@@ -105,8 +105,8 @@ if st.button("Build & Export XLSX", use_container_width=True, disabled=not files
         to_dt   = pd.to_datetime(f_to   or date_to)
 
         # New columns
-        year_val  = from_dt.year           # int year
-        month_val = from_dt                # true date; Excel formatter will show mmm
+        year_val  = from_dt.year
+        month_val = from_dt
         df.insert(0, "Year",  year_val)
         df.insert(1, "Month", month_val)
         df.insert(2, "From",  from_dt)
