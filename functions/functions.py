@@ -173,29 +173,6 @@ def sniff_delimiter(text_sample: str) -> str:
     except Exception:
         return ","  # fallback
 
-def find_bad_rows(uploaded_file, max_report=20):
-    """
-    Return dict with delimiter guess, expected column count from header,
-    and the first few rows that don't match that count.
-    """
-    raw = uploaded_file.read()           # bytes
-    uploaded_file.seek(0)
-    txt = raw.decode("utf-8", errors="replace")
-    delim = sniff_delimiter(txt[:32768])
-
-    lines = txt.splitlines()
-    rdr = csv.reader(lines, delimiter=delim)
-    bad, expected = [], None
-    for i, row in enumerate(rdr, start=1):
-        if i == 1:
-            expected = len(row)
-            continue
-        if expected is not None and len(row) != expected:
-            bad.append((i, len(row), lines[i-1][:200]))
-            if len(bad) >= max_report:
-                break
-    return {"delimiter": delim, "expected_cols": expected, "bad_rows": bad}
-
 def robust_read_csv(uploaded_file) -> tuple[pd.DataFrame, int]:
     """
     Defensive CSV loader:

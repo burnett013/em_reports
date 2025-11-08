@@ -56,15 +56,7 @@ if st.button("Run diagnostics", use_container_width=True, disabled=not files):
         except Exception as e:
             st.error(f"Failed to parse: {name}")
             st.code(str(e))
-            # Pinpoint structural issues (column count mismatches)
-            diag = find_bad_rows(f)
-            st.write({"delimiter": diag["delimiter"], "expected_cols": diag["expected_cols"]})
-            if diag["bad_rows"]:
-                st.warning(f"First {len(diag['bad_rows'])} mismatched rows:")
-                for line_no, found_cols, snippet in diag["bad_rows"][:10]:
-                    st.code(f"line {line_no} | cols={found_cols} | {snippet}")
-            else:
-                st.info("No column-count mismatches; likely quoting/encoding issue.")
+            
 
 # --- SCO mapping (defined once) ---
 SCO_MAP_RAW = {
